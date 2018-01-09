@@ -25,6 +25,7 @@ int main(int argc, char ** argv) {
       failwith("User input error");
 
     if(strcmp(command, COMMAND_EXIT) == 0) {
+      close(sockfd);
       execution = false;
       continue;
     }
@@ -42,6 +43,13 @@ int main(int argc, char ** argv) {
 
     if(strcmp(command, COMMAND_DIRECTORY_LIST) == 0) {
       if(dir(sockfd, arglist) != EXIT_SUCCESS) {
+        printf("Are you connected?\n");
+      }
+      continue;
+    }
+
+    if(strcmp(command, COMMAND_VIEW_FILE) == 0) {
+      if(show(sockfd, arglist) != EXIT_SUCCESS) {
         printf("Are you connected?\n");
       }
       continue;

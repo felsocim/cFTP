@@ -65,8 +65,8 @@ void receive(int sockfd) {
 }
 
 int show(int sockfd, char * file) {
-  char * buffer = malloc(MAX_COMMAND_LENGTH + MAX_ARGLIST_LENGTH + 6);
-  char * command = "GET ";
+  char * buffer = malloc(MAX_COMMAND_LENGTH + MAX_ARGLIST_LENGTH + 4);
+  char * command = "RETR ";
 
   if(buffer == NULL)
     failwith("Failed to allocate command buffer");
@@ -81,7 +81,9 @@ int show(int sockfd, char * file) {
   if(buffer == NULL)
     failwith("Failed to construct command buffer (stage argument 1)");
 
-  buffer = strcat(buffer, " -\r\n");
+  buffer = strcat(buffer, "\r\n");
+
+  printf("BUFF=%s\n", buffer);
 
   if(buffer == NULL)
     failwith("Failed to construct command buffer (stage argument 2)");
@@ -172,7 +174,7 @@ int ftp_passwd_authenticate(int sock)
 	}
 	/* TODO: gérer erreur (bad password) */
 	printf("%s\n", cmd);
-  
+
 	return 0;
 }
 

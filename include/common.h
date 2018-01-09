@@ -17,6 +17,7 @@
 #define MAX_ARGLIST_LENGTH 256
 #define COMMAND_CONNECT "open"
 #define COMMAND_DIRECTORY_LIST "dir"
+#define COMMAND_VIEW_FILE "show"
 #define COMMAND_EXIT "ciao"
 
 // Should hold a help message string which will be displayed anytime the 'help'
