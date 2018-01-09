@@ -2,14 +2,27 @@
 
 int ftp_data_socket(struct data_socket *dsock)
 {
+	struct sockaddr_in addr;
 	int fd = socket(AF_INET, SOCK_STREAM, 0);
-
+	
 	if (fd == -1) {
 		perror("socket");
 		return -1;
 	}
 
-	return 0;
+	addr.sin_family = AF_INET;
+	addr.sin_addr.s_addr = INADDR_ANY;
+	addr.sin_port = 0;
+
+	if (bind(fd, (const struct sockaddr *)&addr, sizeof(struct sockaddr))) {
+		perror("bind");
+		close(fd);
+		return 1;
+	}
+
+	dsock->sockfd = fd;
+	dsock->port = addr.sin_port;
+	return 0;		
 }
 
 int dir(int sockfd, char * directory) {
