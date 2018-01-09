@@ -11,8 +11,8 @@ struct data_socket {
 	unsigned short port;
 };
 
-int dir(int, char *, bool);
-int show(int, char *, bool);
+int dir(int, char *, bool, int);
+int show(int, char *, bool, int);
 void receive(int);
 void stdin_flush(void);
 int ftp_login_authenticate(int, bool);
