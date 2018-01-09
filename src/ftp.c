@@ -1,15 +1,11 @@
 #include "../include/ftp.h"
 
 int dir(int sockfd, char * directory) {
-  char * buffer = malloc(MAX_COMMAND_LENGTH + MAX_ARGLIST_LENGTH + 2);
-  char * receiver = malloc(RECEIVER_BUFFER_SIZE);
+  char * buffer = malloc(MAX_COMMAND_LENGTH + MAX_ARGLIST_LENGTH + 4);
   char * command = "LIST ";
 
   if(buffer == NULL)
     failwith("Failed to allocate command buffer");
-
-  if(receiver == NULL)
-    failwith("Failed to allocate server response receiver");
 
   buffer = strcpy(buffer, command);
 
@@ -19,22 +15,73 @@ int dir(int sockfd, char * directory) {
   buffer = strcat(buffer, directory);
 
   if(buffer == NULL)
-    failwith("Failed to construct command buffer (stage argument)");
+    failwith("Failed to construct command buffer (stage argument 1)");
+
+  buffer = strcat(buffer, "\r\n");
+
+  if(buffer == NULL)
+    failwith("Failed to construct command buffer (stage argument 2)");
 
   if(send(sockfd, buffer, strlen(buffer), 0) == -1) {
     perror("Failed to communicate with FTP server! Check your network connection");
     return EXIT_FAILURE;
   }
 
-  if(recv(sockfd, receiver, RECEIVER_BUFFER_SIZE, 0) == -1) {
+  receive(sockfd);
+
+  free(buffer);
+
+  return EXIT_SUCCESS;
+}
+
+void receive(int sockfd) {
+  int code = 0;
+  char * receiver = malloc(RECEIVER_BUFFER_SIZE);
+
+  do {
+    code = recv(sockfd, receiver, RECEIVER_BUFFER_SIZE, 0);
+    printf("Response\n%s\n", receiver);
+    memset(receiver, '\0', RECEIVER_BUFFER_SIZE);
+  } while(code == RECEIVER_BUFFER_SIZE);
+
+  if(code == -1) {
     perror("Failed to receive server response");
+    return;
+  }
+
+  free(receiver);
+}
+
+int show(int sockfd, char * file) {
+  char * buffer = malloc(MAX_COMMAND_LENGTH + MAX_ARGLIST_LENGTH + 6);
+  char * command = "GET ";
+
+  if(buffer == NULL)
+    failwith("Failed to allocate command buffer");
+
+  buffer = strcpy(buffer, command);
+
+  if(buffer == NULL)
+    failwith("Failed to construct command buffer (stage command)");
+
+  buffer = strcat(buffer, file);
+
+  if(buffer == NULL)
+    failwith("Failed to construct command buffer (stage argument 1)");
+
+  buffer = strcat(buffer, " -\r\n");
+
+  if(buffer == NULL)
+    failwith("Failed to construct command buffer (stage argument 2)");
+
+  if(send(sockfd, buffer, strlen(buffer), 0) == -1) {
+    perror("Failed to communicate with FTP server! Check your network connection");
     return EXIT_FAILURE;
   }
 
-  printf("Response\n%s\n", receiver);
+  receive(sockfd);
 
   free(buffer);
-  free(receiver);
 
   return EXIT_SUCCESS;
 }
@@ -61,13 +108,13 @@ int ftp_login_authenticate(int sock)
 		return 1;
 	}
 
-	memset(cmd, '\0', sizeof(cmd));
-	if (recv(sock, cmd, sizeof(cmd), 0) == -1) {
-		perror("recv");
-		return 1;
-	}
-
-	printf("%s\n", cmd);
+	// memset(cmd, '\0', sizeof(cmd));
+	// if (recv(sock, cmd, sizeof(cmd), 0) == -1) {
+	// 	perror("recv");
+	// 	return 1;
+	// }
+  //
+	// printf("%s\n", cmd);
 	return 0;
 }
 
@@ -106,13 +153,13 @@ int ftp_passwd_authenticate(int sock)
 		return 1;
 	}
 
-	memset(cmd, '\0', sizeof(cmd));
-	if (recv(sock, cmd, sizeof(cmd), 0) == -1) {
-		perror("recv");
-		return 1;
-	}
-
-	printf("%s\n", cmd);
+	// memset(cmd, '\0', sizeof(cmd));
+	// if (recv(sock, cmd, sizeof(cmd), 0) == -1) {
+	// 	perror("recv");
+	// 	return 1;
+	// }
+  //
+	// printf("%s\n", cmd);
 	return 0;
 }
 
@@ -141,16 +188,7 @@ int ftp_connect(const char *ip)
 		goto err;
 	}
 
-  char * receiver = malloc(RECEIVER_BUFFER_SIZE);
-
-  if(recv(sock, receiver, RECEIVER_BUFFER_SIZE, 0) == -1) {
-    perror("Failed to receive server response");
-    return EXIT_FAILURE;
-  }
-
-  printf("Response\n%s\n", receiver);
-
-  free(receiver);
+  receive(sock);
 
 	return sock;
 err:

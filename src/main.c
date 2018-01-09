@@ -36,6 +36,7 @@ int main(int argc, char ** argv) {
       }
       ftp_login_authenticate(sockfd);
       ftp_passwd_authenticate(sockfd);
+      printf("dcjdolcjds\n");
       continue;
     }
 

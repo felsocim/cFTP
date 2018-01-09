@@ -7,6 +7,8 @@
 #define PORT 		21
 
 int dir(int, char *);
+int show(int, char *);
+void receive(int);
 void stdin_flush(void);
 int ftp_login_authenticate(int);
 int ftp_passwd_authenticate(int);
