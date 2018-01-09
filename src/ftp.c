@@ -2,6 +2,7 @@
 
 int ftp_data_socket(struct data_socket *dsock)
 {
+	struct sockaddr_in addr;
 	int fd = socket(AF_INET, SOCK_STREAM, 0);
 
 	if (fd == -1) {
@@ -9,10 +10,22 @@ int ftp_data_socket(struct data_socket *dsock)
 		return -1;
 	}
 
+	addr.sin_family = AF_INET;
+	addr.sin_addr.s_addr = INADDR_ANY;
+	addr.sin_port = 0;
+
+	if (bind(fd, (const struct sockaddr *)&addr, sizeof(struct sockaddr))) {
+		perror("bind");
+		close(fd);
+		return 1;
+	}
+
+	dsock->sockfd = fd;
+	dsock->port = addr.sin_port;
 	return 0;
 }
 
-int dir(int sockfd, char * directory) {
+int dir(int sockfd, char * directory, bool debug) {
   char * buffer = malloc(MAX_COMMAND_LENGTH + MAX_ARGLIST_LENGTH + 4);
   char * command = "LIST ";
 
@@ -39,7 +52,9 @@ int dir(int sockfd, char * directory) {
     return EXIT_FAILURE;
   }
 
-  receive(sockfd);
+  if(debug) {
+    receive(sockfd);
+  }
 
   free(buffer);
 
@@ -52,7 +67,7 @@ void receive(int sockfd) {
 
   do {
     code = recv(sockfd, receiver, RECEIVER_BUFFER_SIZE, 0);
-    printf("Response\n%s\n", receiver);
+    printf("%s\n", receiver);
     memset(receiver, '\0', RECEIVER_BUFFER_SIZE);
   } while(code == RECEIVER_BUFFER_SIZE);
 
@@ -64,7 +79,7 @@ void receive(int sockfd) {
   free(receiver);
 }
 
-int show(int sockfd, char * file) {
+int show(int sockfd, char * file, bool debug) {
   char * buffer = malloc(MAX_COMMAND_LENGTH + MAX_ARGLIST_LENGTH + 4);
   char * command = "RETR ";
 
@@ -93,7 +108,9 @@ int show(int sockfd, char * file) {
     return EXIT_FAILURE;
   }
 
-  receive(sockfd);
+  if(debug) {
+    receive(sockfd);
+  }
 
   free(buffer);
 
@@ -106,7 +123,7 @@ void stdin_flush(void)
 	while ((c = getchar()) != '\n' && c != EOF);
 }
 
-int ftp_login_authenticate(int sock)
+int ftp_login_authenticate(int sock, bool debug)
 {
 	char login[MAX_LOGIN_LEN];
 	char cmd[MAX_CMD_LEN];
@@ -128,11 +145,16 @@ int ftp_login_authenticate(int sock)
 		return 1;
 	}
 	/* TODO: gérer erreur (bad login) */
-	printf("%s\n", cmd);
+  if(debug) {
+    printf("%s\n", cmd);
+  } else {
+    printf("OK\n");
+  }
+
 	return 0;
 }
 
-int ftp_passwd_authenticate(int sock)
+int ftp_passwd_authenticate(int sock, bool debug)
 {
 	struct termios term;
 	char passwd[MAX_PASSWD_LEN];
@@ -173,12 +195,16 @@ int ftp_passwd_authenticate(int sock)
 		return 1;
 	}
 	/* TODO: gérer erreur (bad password) */
-	printf("%s\n", cmd);
+  if(debug) {
+    printf("%s\n", cmd);
+  } else {
+    printf("OK\n");
+  }
 
 	return 0;
 }
 
-int ftp_connect(const char *ip)
+int ftp_connect(const char *ip, bool debug)
 {
 	int err;
 	struct sockaddr_in addr;
@@ -203,7 +229,11 @@ int ftp_connect(const char *ip)
 		goto err;
 	}
 
-  receive(sock);
+  if(debug) {
+    receive(sock);
+  } else {
+    printf("Connection OK\n");
+  }
 
 	return sock;
 err:

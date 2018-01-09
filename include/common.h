@@ -18,7 +18,10 @@
 #define COMMAND_CONNECT "open"
 #define COMMAND_DIRECTORY_LIST "dir"
 #define COMMAND_VIEW_FILE "show"
-#define COMMAND_EXIT "ciao"
+#define COMMAND_EXIT "exit"
+#define COMMAND_DISCONNECT "ciao"
+#define COMMAND_DEBUGON "debugon"
+#define COMMAND_DEBUGOFF "debugoff"
 
 // Should hold a help message string which will be displayed anytime the 'help'
 // option is present
