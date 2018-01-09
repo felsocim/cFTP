@@ -1,5 +1,17 @@
 #include "../include/ftp.h"
 
+int ftp_data_socket(struct data_socket *dsock)
+{
+	int fd = socket(AF_INET, SOCK_STREAM, 0);
+	
+	if (fd == -1) {
+		perror("socket");
+		return -1;
+	}
+
+	return 0;		
+}
+
 int dir(int sockfd, char * directory) {
   char * buffer = malloc(MAX_COMMAND_LENGTH + MAX_ARGLIST_LENGTH + 2);
   char * receiver = malloc(RECEIVER_BUFFER_SIZE);
@@ -54,7 +66,7 @@ int ftp_login_authenticate(int sock)
 	fflush(stdout);
 	scanf("%s", login);
 	stdin_flush();
-	sprintf(cmd, "USER %s", login);
+	sprintf(cmd, "USER %s\r\n", login);
 
 	if (send(sock, cmd, strlen(cmd), 0) == -1) {
 		perror("send");
@@ -66,7 +78,7 @@ int ftp_login_authenticate(int sock)
 		perror("recv");
 		return 1;
 	}
-
+	/* TODO: gérer erreur (bad login) */
 	printf("%s\n", cmd);
 	return 0;
 }
@@ -94,7 +106,7 @@ int ftp_passwd_authenticate(int sock)
 	scanf("%s", passwd);
 	stdin_flush();
 
-	sprintf(cmd, "PASS %s", passwd);
+	sprintf(cmd, "PASS %s\r\n", passwd);
 	if (send(sock, cmd, strlen(cmd), 0) == -1) {
 		perror("send");
 		return 1;
@@ -111,7 +123,7 @@ int ftp_passwd_authenticate(int sock)
 		perror("recv");
 		return 1;
 	}
-
+	/* TODO: gérer erreur (bad password) */
 	printf("%s\n", cmd);
 	return 0;
 }
