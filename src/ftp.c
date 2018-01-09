@@ -165,8 +165,9 @@ int ftp_passwd_authenticate(int sock)
 		return 1;
 	}
 
-	scanf("%s", passwd);
-	stdin_flush();
+	memset(passwd, '\0', sizeof(passwd));
+	fgets (passwd, MAX_PASSWD_LEN, stdin);
+	passwd[strlen(passwd) - 1] = '\0';
 
 	sprintf(cmd, "PASS %s\r\n", passwd);
 	if (send(sock, cmd, strlen(cmd), 0) == -1) {
