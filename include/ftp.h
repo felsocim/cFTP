@@ -11,11 +11,11 @@ struct data_socket {
 	unsigned short port;
 };
 
-int dir(int, char *);
-int show(int, char *);
+int dir(int, char *, bool);
+int show(int, char *, bool);
 void receive(int);
 void stdin_flush(void);
-int ftp_login_authenticate(int);
-int ftp_passwd_authenticate(int);
-int ftp_connect(const char *);
+int ftp_login_authenticate(int, bool);
+int ftp_passwd_authenticate(int, bool);
+int ftp_connect(const char *, bool);
 int ftp_data_socket(struct data_socket *dsock);
