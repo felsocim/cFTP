@@ -47,14 +47,12 @@ void stdin_flush(void)
 
 int ftp_login_authenticate(int sock)
 {
-	struct termios term;
 	char login[MAX_LOGIN_LEN];
-	char passwd[MAX_PASSWD_LEN];
 	char cmd[MAX_CMD_LEN];
 
 	printf("username: ");
 	fflush(stdout);
-	scanf("%127[^\n]", login);
+	scanf("%s", login);
 	stdin_flush();
 	sprintf(cmd, "USER %s", login);
 
@@ -93,7 +91,7 @@ int ftp_passwd_authenticate(int sock)
 		return 1;
 	}
 
-	scanf("%255[^\n]", passwd);
+	scanf("%s", passwd);
 	stdin_flush();
 
 	sprintf(cmd, "PASS %s", passwd);
