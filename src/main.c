@@ -56,18 +56,32 @@ int main(int argc, char ** argv) {
       if(ftp_data_socket(&sdata) == 1) {
         fprintf(stderr, "Data port opening failed\n");
       }
+      char * buffer = malloc(MAX_COMMAND_LENGTH + MAX_ARGLIST_LENGTH + 4);
+
+      sprintf(buffer, "PORT %d\r\n", sdata.port);
+
+      if(send(sockfd, buffer, strlen(buffer), 0) == -1) {
+        perror("Failed to communicate with FTP server! Check your network connection");
+        return EXIT_FAILURE;
+      }
+
+      if(debug) {
+        receive(sockfd);
+      }
+
+      free(buffer);
       continue;
     }
 
     if(strcmp(command, COMMAND_DIRECTORY_LIST) == 0) {
-      if(dir(sockfd, arglist, debug) != EXIT_SUCCESS) {
+      if(dir(sockfd, arglist, debug, sdata.sockfd) != EXIT_SUCCESS) {
         printf("Are you connected?\n");
       }
       continue;
     }
 
     if(strcmp(command, COMMAND_VIEW_FILE) == 0) {
-      if(show(sockfd, arglist, debug) != EXIT_SUCCESS) {
+      if(show(sockfd, arglist, debug, sdata.sockfd) != EXIT_SUCCESS) {
         printf("Are you connected?\n");
       }
       continue;

@@ -26,7 +26,7 @@ int ftp_data_socket(struct data_socket *dsock)
 	return 0;
 }
 
-int dir(int sockfd, char * directory, bool debug) {
+int dir(int sockfd, char * directory, bool debug, int datasock) {
   char * buffer = malloc(MAX_COMMAND_LENGTH + MAX_ARGLIST_LENGTH + 4);
   char * command = "LIST ";
 
@@ -57,6 +57,8 @@ int dir(int sockfd, char * directory, bool debug) {
     receive(sockfd);
   }
 
+  receive(datasock);
+
   free(buffer);
 
   return EXIT_SUCCESS;
@@ -80,7 +82,7 @@ void receive(int sockfd) {
   free(receiver);
 }
 
-int show(int sockfd, char * file, bool debug) {
+int show(int sockfd, char * file, bool debug, int datasock) {
   char * buffer = malloc(MAX_COMMAND_LENGTH + MAX_ARGLIST_LENGTH + 4);
   char * command = "RETR ";
 
@@ -112,6 +114,8 @@ int show(int sockfd, char * file, bool debug) {
   if(debug) {
     receive(sockfd);
   }
+
+  receive(datasock);
 
   free(buffer);
 
