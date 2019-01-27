@@ -1,18 +1,5 @@
 #include "../include/common.h"
 
-// Displays given error messages (if any) and terminates the application
-void failwith(const char * message) {
-	if(message != NULL) {
-		if(errno != 0)
-			perror(message);
-		else
-			fprintf(stderr, "%s\n", message);
-	} else {
-		fprintf(stderr, "%s\n", "Unknown error occurred!");
-	}
-	exit(EXIT_FAILURE);
-}
-
 // Displays usage or help message (based on exit code nature) and terminates
 // the application with given exit code
 void usage(const char * arg_0, const int exit_code) {

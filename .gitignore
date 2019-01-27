@@ -1,2 +1,10 @@
+# Object files
 obj/*
+
+# Binaries
 bin/*
+
+# Lex & Yacc
+src/lexer.c
+include/prompt.h
+src/prompt.c
