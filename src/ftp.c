@@ -20,46 +20,68 @@ int ftp_data_socket(struct data_socket *dsock)
 		return 1;
 	}
 
+	socklen_t alen;
+
+	getsockname(fd, (struct sockaddr *)&addr, &alen);
+
+	printf("Port num af bind: %u\n", ntohs(addr.sin_port));
+
 	dsock->sockfd = fd;
-	dsock->port = addr.sin_port;
+	dsock->port = ntohs(addr.sin_port);
+	dsock->ip_addr = (char*)malloc(INET_ADDRSTRLEN);
+
+	struct ifaddrs * interfaces, * iterator;
+
+	getifaddrs(&interfaces);
+
+	iterator = interfaces;
+
+	while(iterator) {
+		if((iterator->ifa_flags & IFF_UP) && !(iterator->ifa_flags & IFF_LOOPBACK) && iterator->ifa_addr->sa_family == AF_INET) {
+			struct sockaddr_in * temp = (struct sockaddr_in *) iterator->ifa_addr;
+			inet_ntop(AF_INET, &(temp->sin_addr), dsock->ip_addr, INET_ADDRSTRLEN);
+			break;
+		}
+		iterator = iterator->ifa_next;
+	}
+
+	freeifaddrs(interfaces);
 
 	return 0;
 }
 
 int dir(int sockfd, char * directory, bool debug, int datasock) {
-  char * buffer = malloc(MAX_COMMAND_LENGTH + MAX_ARGLIST_LENGTH + 4);
-  char * command = "LIST ";
+  char * command = malloc(PROMPT_BUFFER_LENGTH);
+  
+	if(snprintf(command, PROMPT_BUFFER_LENGTH, "LIST\r\n"/*, directory*/) < 0) {
+		fprintf(stderr, "Internal memory error!\n");
+		return EXIT_FAILURE;
+	}
 
-  if(buffer == NULL)
-    failwith("Failed to allocate command buffer");
-
-  buffer = strcpy(buffer, command);
-
-  if(buffer == NULL)
-    failwith("Failed to construct command buffer (stage command)");
-
-  buffer = strcat(buffer, directory);
-
-  if(buffer == NULL)
-    failwith("Failed to construct command buffer (stage argument 1)");
-
-  buffer = strcat(buffer, "\r\n");
-
-  if(buffer == NULL)
-    failwith("Failed to construct command buffer (stage argument 2)");
-
-  if(send(sockfd, buffer, strlen(buffer), 0) == -1) {
-    perror("Failed to communicate with FTP server! Check your network connection");
+  if(send(sockfd, command, strlen(command), 0) < 0) {
+    fprintf(stderr, "Failed to send your request!\n");
     return EXIT_FAILURE;
   }
+
+	printf("Sent LIST\n");
 
   if(debug) {
     receive(sockfd);
   }
 
+	printf("About to receive data\n");
+
   receive(datasock);
 
-  free(buffer);
+	printf("Data rcv end, waiting for control\n");
+
+	if(debug) {
+    receive(sockfd);
+  }
+
+	printf("control rcvd\n");
+
+  free(command);
 
   return EXIT_SUCCESS;
 }
@@ -82,32 +104,51 @@ void receive(int sockfd) {
   free(receiver);
 }
 
+char * recv_quiet(int sockfd) {
+  ssize_t code = 0;
+  char * receiver = malloc(RECEIVER_BUFFER_SIZE);
+	char * total = NULL;
+	ssize_t total_size = 0;
+
+  do {
+    code = recv(sockfd, receiver, RECEIVER_BUFFER_SIZE, 0);
+    
+		if(total_size < 1) {
+			total = malloc(code);
+			total = strncpy(total, receiver, code);
+			total_size = code;
+		} else {
+			total_size += code;
+			total = realloc(total, total_size);
+			total = strncat(total, receiver, code);
+		}
+
+    memset(receiver, '\0', RECEIVER_BUFFER_SIZE);
+  } while(code == RECEIVER_BUFFER_SIZE);
+
+  if(code == -1) {
+    perror("Failed to receive server response");
+    return NULL;
+  }
+
+	total = realloc(total, total_size + 1);
+	total[total_size] = '\0';
+
+  free(receiver);
+
+	return total;
+}
+
 int show(int sockfd, char * file, bool debug, int datasock) {
-  char * buffer = malloc(MAX_COMMAND_LENGTH + MAX_ARGLIST_LENGTH + 4);
-  char * command = "RETR ";
+  char * command = malloc(PROMPT_BUFFER_LENGTH);
 
-  if(buffer == NULL)
-    failwith("Failed to allocate command buffer");
+	if(snprintf(command, PROMPT_BUFFER_LENGTH, "RETR %s\r\n", file) < 0) {
+		fprintf(stderr, "Internal memory error!\n");
+		return EXIT_FAILURE;
+	}
 
-  buffer = strcpy(buffer, command);
-
-  if(buffer == NULL)
-    failwith("Failed to construct command buffer (stage command)");
-
-  buffer = strcat(buffer, file);
-
-  if(buffer == NULL)
-    failwith("Failed to construct command buffer (stage argument 1)");
-
-  buffer = strcat(buffer, "\r\n");
-
-  printf("BUFF=%s\n", buffer);
-
-  if(buffer == NULL)
-    failwith("Failed to construct command buffer (stage argument 2)");
-
-  if(send(sockfd, buffer, strlen(buffer), 0) == -1) {
-    perror("Failed to communicate with FTP server! Check your network connection");
+  if(send(sockfd, command, strlen(command), 0) == -1) {
+    fprintf(stderr, "Failed to send your request!\n");
     return EXIT_FAILURE;
   }
 
@@ -117,7 +158,7 @@ int show(int sockfd, char * file, bool debug, int datasock) {
 
   receive(datasock);
 
-  free(buffer);
+  free(command);
 
   return EXIT_SUCCESS;
 }
@@ -131,7 +172,7 @@ void stdin_flush(void)
 int ftp_login_authenticate(int sock, bool debug)
 {
 	char login[MAX_LOGIN_LEN];
-	char cmd[MAX_CMD_LEN];
+	char cmd[PROMPT_BUFFER_LENGTH];
 
 	printf("username: ");
 	fflush(stdout);
@@ -163,7 +204,7 @@ int ftp_passwd_authenticate(int sock, bool debug)
 {
 	struct termios term;
 	char passwd[MAX_PASSWD_LEN];
-	char cmd[MAX_CMD_LEN];
+	char cmd[PROMPT_BUFFER_LENGTH];
 
 	printf("password (echo disabled): ");
 	fflush(stdout);
@@ -210,7 +251,7 @@ int ftp_passwd_authenticate(int sock, bool debug)
 	return 0;
 }
 
-int ftp_connect(const char *ip, bool debug)
+int ftp_connect(const char *ip, in_port_t port, bool debug)
 {
 	int err;
 	struct sockaddr_in addr;
@@ -222,7 +263,7 @@ int ftp_connect(const char *ip, bool debug)
 	}
 
 	addr.sin_family = AF_INET;
-	addr.sin_port = htons(PORT);
+	addr.sin_port = htons(port);
 
 	if (inet_aton(ip, &addr.sin_addr) == 0) {
 		fprintf(stderr, "Invalid address\n");
