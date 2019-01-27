@@ -7,6 +7,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <stdbool.h>
+#include <libgen.h>
 #include <termios.h>
 #include <arpa/inet.h>
 #include <sys/types.h>

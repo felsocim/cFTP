@@ -1,5 +1,5 @@
 CC = gcc
-LEX = flex -d
+LEX = flex
 YACC = bison -d
 CFLAGS = -Wall -g
 LDFLAGS = -lfl -ly -lm

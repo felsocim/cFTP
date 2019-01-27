@@ -5,24 +5,17 @@
 
 #define PROMPT_BUFFER_LENGTH 1024
 #define RECEIVER_BUFFER_SIZE 4096
-#define MAX_LOGIN_LEN	128
-#define MAX_PASSWD_LEN	256
-#define PORT 		21
+#define PORT 21
 
-struct data_socket {
-	int sockfd;
-	char * ip_addr;
-	unsigned short port;
-};
-
-int dir(int, char *, bool, int);
-int show(int, char *, bool, int);
-void receive(int);
-char * recv_quiet(int);
 void stdin_flush(void);
-int ftp_login_authenticate(int, bool);
-int ftp_passwd_authenticate(int, bool);
-int ftp_connect(const char *, in_port_t, bool);
-int ftp_data_socket(struct data_socket *dsock);
+char * strip_first_last(char *);
+bool is_error(const char *);
+int open_connection(const char *, in_port_t);
+int send_command(int, char *, char *);
+char * recv_reply(int, FILE *);
+int login(int, bool);
+int passive_mode(int, const char *);
+int active_mode(int);
+int close_connection(int);
 
 #endif

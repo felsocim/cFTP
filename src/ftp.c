@@ -1,289 +1,399 @@
 #include "../include/ftp.h"
 
-int ftp_data_socket(struct data_socket *dsock)
-{
-	struct sockaddr_in addr;
-	int fd = socket(AF_INET, SOCK_STREAM, 0);
+void stdin_flush(void) {
+	int c;
+	while((c = getchar()) != '\n' && c != EOF);
+}
 
-	if (fd == -1) {
-		perror("socket");
+char * strip_first_last(char * __s_to_consume) {
+	size_t length = strlen(__s_to_consume);
+	char * result = NULL;
+
+	if(length < 2) {
+		if(!(result = malloc(1))) {
+			return NULL;
+		}
+
+		result[0] = '\0';
+		return result;
+	}
+
+	if(!(result = malloc(length - 2))) {
+		return NULL;
+	}
+
+	length -= 2;
+	
+	char * temp = __s_to_consume + 1;
+
+	size_t i = 0;
+
+	for(; i < length; i++) {
+		result[i] = temp[i];
+	}
+
+	free(__s_to_consume);
+
+	return result;
+}
+
+bool is_error(const char * response) {
+	return response[0] == '4' || response[0] == '5';
+}
+
+int open_connection(const char * server_ip, in_port_t port) {
+	struct sockaddr_in address;
+	int sockfd;
+
+	if((sockfd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
 		return -1;
 	}
 
-	addr.sin_family = AF_INET;
-	addr.sin_addr.s_addr = INADDR_ANY;
-	addr.sin_port = 0;
+	address.sin_family = AF_INET;
+	address.sin_port = htons(port);
 
-	if (bind(fd, (const struct sockaddr *)&addr, sizeof(struct sockaddr))) {
-		perror("bind");
-		close(fd);
+	if(!inet_aton(server_ip, &address.sin_addr)) {
+		goto error;
+	}
+
+	if(connect(sockfd, (struct sockaddr *) &address, sizeof(struct sockaddr)) == -1) {
+		goto error;
+	}
+
+	char * response;
+
+  if(!(response = recv_reply(sockfd, NULL)) || is_error(response)) {
+		goto error;
+	}
+
+	return sockfd;
+
+error:
+	close(sockfd);
+	return -1;
+}
+
+int send_command(int sockfd, char * command, char * arguments) {
+	if(!command) {
+		return -1;
+	}
+
+	size_t length = strlen(command) + 3;
+
+	if(arguments) {
+		length += strlen(arguments) + 1;
+	}
+
+	char * line = malloc(length);
+
+	if(!line) {
+		return -1;
+	}
+
+	if(snprintf(line, length, "%s%s%s\r\n", command, arguments ? " " : "", arguments ? arguments : "") != length - 1) {
+		return -1;
+	}
+
+	length -= 1;
+
+  if(send(sockfd, line, length, 0) != length) {
+    return -1;
+  }
+
+	return 0;
+}
+
+char * recv_reply(int sockfd, FILE * output) {
+  ssize_t code = 0, total_size = 0;
+  char * receiver = calloc(RECEIVER_BUFFER_SIZE, 1),
+			 * total = NULL;
+
+  do {
+    code = recv(sockfd, receiver, RECEIVER_BUFFER_SIZE - 1, 0);
+    
+		if(output) {
+			if(fwrite(receiver, code, 1, output) != code) {
+				free(receiver);
+				return NULL;
+			}
+		} else {
+			if(total_size < 1) {
+				if(!(total = malloc(code + 1))) {
+					free(receiver);
+					return NULL;
+				}
+
+				total = strncpy(total, receiver, code);
+				total_size = code;
+			} else {
+				total_size += code;
+
+				if(!(total = realloc(total, total_size))) {
+					free(receiver);
+					return NULL;
+				}
+
+				total = strncat(total, receiver, code);
+			}
+		}	
+
+    memset(receiver, '\0', RECEIVER_BUFFER_SIZE);
+  } while(code == RECEIVER_BUFFER_SIZE - 1);
+
+  if(code == -1) {
+    return NULL;
+  }
+
+  free(receiver);
+
+	return !output ? total : "";
+}
+
+int login(int sockfd, bool debug) {
+	char * data;
+	
+	if(!(data = calloc(PROMPT_BUFFER_LENGTH, 1))) {
+		return -1;
+	}
+
+	printf("cFTP> username: ");
+
+	fflush(stdout);
+
+	scanf("%s", data);
+
+	stdin_flush();
+
+	if(send_command(sockfd, "USER", data) == -1) {
+		free(data);
+		return -1;
+	}
+
+	char * response;
+
+	if(!(response = recv_reply(sockfd, NULL))) {
+		free(data);
+		return -1;
+	}
+
+	if(debug) {
+		printf("%s\n", response);
+	}
+
+	free(data);
+
+	if(is_error(response)) {
+		free(response);
+		return -1;
+	}
+
+	free(response);
+
+	// PART 2: Password
+
+	struct termios terminal;
+
+	printf("cFTP> password (echo off): ");
+
+	fflush(stdout);
+
+	if(tcgetattr(0, &terminal) == -1) {
+		return -1;
+	}
+
+	terminal.c_lflag &= ~ECHO;
+
+	if(tcsetattr(1, TCSANOW, &terminal) == -1) {
+		return -1;
+	}
+
+	if(!(data = calloc(PROMPT_BUFFER_LENGTH, 1))) {
+		return -1;
+	}
+
+	if(!fgets(data, PROMPT_BUFFER_LENGTH, stdin)) {
+		free(data);
+		return -1;
+	}
+
+	if(send_command(sockfd, "PASS", data) == -1) {
+		free(data);
+		return -1;
+	}
+
+	terminal.c_lflag |= ECHO;
+
+	if(tcsetattr(1, TCSANOW, &terminal) == -1) {
+		free(data);
 		return 1;
 	}
 
-	socklen_t alen;
+	if(!(response = recv_reply(sockfd, NULL))) {
+		free(data);
+		return -1;
+	}
 
-	getsockname(fd, (struct sockaddr *)&addr, &alen);
+	if(debug) {
+		printf("%s\n", response);
+	}
 
-	printf("Port num af bind: %u\n", ntohs(addr.sin_port));
+	free(data);
 
-	dsock->sockfd = fd;
-	dsock->port = ntohs(addr.sin_port);
-	dsock->ip_addr = (char*)malloc(INET_ADDRSTRLEN);
+	if(is_error(response)) {
+		free(response);
+		return -1;
+	}
+
+	free(response);
+
+	return 0;
+}
+
+int passive_mode(int sockfd, const char * server_ip) {
+	if(send_command(sockfd, "PASV", NULL)) {
+		return -1;
+	}
+
+	char * response;
+
+	if(!(response = recv_reply(sockfd, NULL)) || is_error(response)) {
+		free(response);
+		return -1;
+	}
+	
+	char * first = strchr(response, '(');
+
+	int i1, i2, i3, i4, i5, i6;
+
+	sscanf(first, "(%d,%d,%d,%d,%d,%d).\r\n", &i1, &i2, &i3, &i4, &i5, &i6);
+
+	int data_socket;
+
+	if((data_socket = open_connection(server_ip, i5 * 256 + i6)) == -1) {
+		free(response);
+		return -1;
+	}
+
+	free(response);
+	return data_socket;
+}
+
+int active_mode(int sockfd) {
+	struct sockaddr_in address;
+	int data_sockfd;
+
+	if((data_sockfd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
+		return -1;
+	}
+
+	address.sin_family = AF_INET;
+	address.sin_addr.s_addr = INADDR_ANY;
+	address.sin_port = 0;
+
+	if(bind(data_sockfd, (const struct sockaddr *) &address, sizeof(struct sockaddr)) == -1) {
+		close(data_sockfd);
+		return -1;
+	}
+
+	socklen_t length;
+
+	if(getsockname(data_sockfd, (struct sockaddr *) &address, &length) == -1) {
+		close(data_sockfd);
+		return -1;
+	}
+
+	in_port_t port = ntohs(address.sin_port);
+	char * local_ip;
+
+	if(!(local_ip = malloc(INET_ADDRSTRLEN + 1))) {
+		close(data_sockfd);
+		return -1;
+	}
 
 	struct ifaddrs * interfaces, * iterator;
 
-	getifaddrs(&interfaces);
+	if(getifaddrs(&interfaces) == -1) {
+		free(local_ip);
+		close(data_sockfd);
+		
+		return -1;
+	}
 
 	iterator = interfaces;
 
 	while(iterator) {
 		if((iterator->ifa_flags & IFF_UP) && !(iterator->ifa_flags & IFF_LOOPBACK) && iterator->ifa_addr->sa_family == AF_INET) {
 			struct sockaddr_in * temp = (struct sockaddr_in *) iterator->ifa_addr;
-			inet_ntop(AF_INET, &(temp->sin_addr), dsock->ip_addr, INET_ADDRSTRLEN);
+			
+			if(!(inet_ntop(AF_INET, &(temp->sin_addr), local_ip, INET_ADDRSTRLEN))) {
+				freeifaddrs(interfaces);
+				free(local_ip);
+				close(data_sockfd);
+
+				return -1;
+			}
+
 			break;
 		}
+
 		iterator = iterator->ifa_next;
 	}
 
 	freeifaddrs(interfaces);
+	
+	int i = 0;
 
-	return 0;
-}
-
-int dir(int sockfd, char * directory, bool debug, int datasock) {
-  char * command = malloc(PROMPT_BUFFER_LENGTH);
-  
-	if(snprintf(command, PROMPT_BUFFER_LENGTH, "LIST\r\n"/*, directory*/) < 0) {
-		fprintf(stderr, "Internal memory error!\n");
-		return EXIT_FAILURE;
-	}
-
-  if(send(sockfd, command, strlen(command), 0) < 0) {
-    fprintf(stderr, "Failed to send your request!\n");
-    return EXIT_FAILURE;
-  }
-
-	printf("Sent LIST\n");
-
-  if(debug) {
-    receive(sockfd);
-  }
-
-	printf("About to receive data\n");
-
-  receive(datasock);
-
-	printf("Data rcv end, waiting for control\n");
-
-	if(debug) {
-    receive(sockfd);
-  }
-
-	printf("control rcvd\n");
-
-  free(command);
-
-  return EXIT_SUCCESS;
-}
-
-void receive(int sockfd) {
-  int code = 0;
-  char * receiver = malloc(RECEIVER_BUFFER_SIZE);
-
-  do {
-    code = recv(sockfd, receiver, RECEIVER_BUFFER_SIZE, 0);
-    printf("%s\n", receiver);
-    memset(receiver, '\0', RECEIVER_BUFFER_SIZE);
-  } while(code == RECEIVER_BUFFER_SIZE);
-
-  if(code == -1) {
-    perror("Failed to receive server response");
-    return;
-  }
-
-  free(receiver);
-}
-
-char * recv_quiet(int sockfd) {
-  ssize_t code = 0;
-  char * receiver = malloc(RECEIVER_BUFFER_SIZE);
-	char * total = NULL;
-	ssize_t total_size = 0;
-
-  do {
-    code = recv(sockfd, receiver, RECEIVER_BUFFER_SIZE, 0);
-    
-		if(total_size < 1) {
-			total = malloc(code);
-			total = strncpy(total, receiver, code);
-			total_size = code;
-		} else {
-			total_size += code;
-			total = realloc(total, total_size);
-			total = strncat(total, receiver, code);
+	for(;i < INET_ADDRSTRLEN; i++) {
+		if(local_ip[i] == '.') {
+			local_ip[i] = ',';
 		}
-
-    memset(receiver, '\0', RECEIVER_BUFFER_SIZE);
-  } while(code == RECEIVER_BUFFER_SIZE);
-
-  if(code == -1) {
-    perror("Failed to receive server response");
-    return NULL;
-  }
-
-	total = realloc(total, total_size + 1);
-	total[total_size] = '\0';
-
-  free(receiver);
-
-	return total;
-}
-
-int show(int sockfd, char * file, bool debug, int datasock) {
-  char * command = malloc(PROMPT_BUFFER_LENGTH);
-
-	if(snprintf(command, PROMPT_BUFFER_LENGTH, "RETR %s\r\n", file) < 0) {
-		fprintf(stderr, "Internal memory error!\n");
-		return EXIT_FAILURE;
 	}
 
-  if(send(sockfd, command, strlen(command), 0) == -1) {
-    fprintf(stderr, "Failed to send your request!\n");
-    return EXIT_FAILURE;
-  }
+	char * buffer;
 
-  if(debug) {
-    receive(sockfd);
-  }
+	if(!(buffer = malloc(PROMPT_BUFFER_LENGTH))) {
+		free(local_ip);
+		close(data_sockfd);
 
-  receive(datasock);
-
-  free(command);
-
-  return EXIT_SUCCESS;
-}
-
-void stdin_flush(void)
-{
-	int c;
-	while ((c = getchar()) != '\n' && c != EOF);
-}
-
-int ftp_login_authenticate(int sock, bool debug)
-{
-	char login[MAX_LOGIN_LEN];
-	char cmd[PROMPT_BUFFER_LENGTH];
-
-	printf("username: ");
-	fflush(stdout);
-	scanf("%s", login);
-	stdin_flush();
-	sprintf(cmd, "USER %s\r\n", login);
-
-	if (send(sock, cmd, strlen(cmd), 0) == -1) {
-		perror("send");
-		return 1;
-	}
-
-	memset(cmd, '\0', sizeof(cmd));
-	if (recv(sock, cmd, sizeof(cmd), 0) == -1) {
-		perror("recv");
-		return 1;
-	}
-	/* TODO: gérer erreur (bad login) */
-  if(debug) {
-    printf("%s\n", cmd);
-  } else {
-    printf("OK\n");
-  }
-
-	return 0;
-}
-
-int ftp_passwd_authenticate(int sock, bool debug)
-{
-	struct termios term;
-	char passwd[MAX_PASSWD_LEN];
-	char cmd[PROMPT_BUFFER_LENGTH];
-
-	printf("password (echo disabled): ");
-	fflush(stdout);
-
-	if (tcgetattr(0, &term) == -1) {
-		perror("tcgetattr");
-		return 1;
-	}
-
-	term.c_lflag &= ~ECHO;
-	if (tcsetattr(1, TCSANOW, &term) == -1) {
-		perror("tcsetattr");
-		return 1;
-	}
-
-	memset(passwd, '\0', sizeof(passwd));
-	fgets (passwd, MAX_PASSWD_LEN, stdin);
-	passwd[strlen(passwd) - 1] = '\0';
-
-	sprintf(cmd, "PASS %s\r\n", passwd);
-	if (send(sock, cmd, strlen(cmd), 0) == -1) {
-		perror("send");
-		return 1;
-	}
-
-	term.c_lflag |= ECHO;
-	if (tcsetattr(1, TCSANOW, &term) == -1) {
-		perror("tcsetattr");
-		return 1;
-	}
-
-	memset(cmd, '\0', sizeof(cmd));
-	if (recv(sock, cmd, sizeof(cmd), 0) == -1) {
-		perror("recv");
-		return 1;
-	}
-	/* TODO: gérer erreur (bad password) */
-  if(debug) {
-    printf("%s\n", cmd);
-  } else {
-    printf("OK\n");
-  }
-
-	return 0;
-}
-
-int ftp_connect(const char *ip, in_port_t port, bool debug)
-{
-	int err;
-	struct sockaddr_in addr;
-	int sock = socket(AF_INET, SOCK_STREAM, 0);
-
-	if (sock == -1) {
-		perror("socket");
 		return -1;
 	}
 
-	addr.sin_family = AF_INET;
-	addr.sin_port = htons(port);
+	if(snprintf(buffer, PROMPT_BUFFER_LENGTH, "%s,%d,%d", local_ip, (port / 256), port % 256) < 0) {
+		free(local_ip);
+		free(buffer);
+		close(data_sockfd);
 
-	if (inet_aton(ip, &addr.sin_addr) == 0) {
-		fprintf(stderr, "Invalid address\n");
-		goto err;
+		return -1;
 	}
 
-	err = connect(sock, (struct sockaddr *)&addr, sizeof(struct sockaddr));
-	if (err) {
-		perror("connect");
-		goto err;
+	char * response;
+
+	if(send_command(sockfd, "PORT", buffer) == -1 || !(response = recv_reply(sockfd, NULL)) || is_error(response)) {
+		free(local_ip);
+		free(buffer);
+		free(response);
+		close(data_sockfd);
+
+		return -1;
 	}
 
-  if(debug) {
-    receive(sock);
-  } else {
-    printf("Connection OK\n");
-  }
+	free(local_ip);
+	free(buffer);
+	free(response);
 
-	return sock;
-err:
-	close(sock);
-	return -1;
+	return 0;
+}
+
+int close_connection(int sockfd) {
+	char * response;
+
+	if(send_command(sockfd, "QUIT", NULL) ||
+			!(response = recv_reply(sockfd, NULL)) ||
+			is_error(response) ||
+			close(sockfd) == -1
+	) {
+		return -1;
+	}
+
+	return 0;
 }

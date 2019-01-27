@@ -4,10 +4,9 @@
 #include "common.h"
 #include "ftp.h"
 
-extern bool debug, execution;
-extern int sockfd;
-extern char * server_ipaddr;
-extern struct data_socket sdata;
+extern bool passive, debug, execution;
+extern int sockfd, data_sockfd;
+extern char * server_ip;
 
 extern int yyparse(void);
 

@@ -11,67 +11,30 @@
   char * string;
 }
 
-%token OPEN CLOSE HELP EXIT LIST DELETE DIR GOTO GET PASSIVE DEBUG ON OFF
+%token OPEN CLOSE HELP EXIT LIST DELETE DIR GOTO GET PASSIVE ACTIVE DEBUG ON OFF
 %token <string> NAME IPADDR
 
 %%
 
 command:
   OPEN IPADDR {
-    server_ipaddr = strdup($2);
+    server_ip = strdup($2);
 
-    if((sockfd = ftp_connect($2, PORT, debug)) == -1) {
-      fprintf(stderr, "Failed to connect to %s!\n", $2);
+    if((sockfd = open_connection(server_ip, PORT)) == -1 || login(sockfd, debug) == -1) {
+      fprintf(stderr, "Unable to connect to '%s'!\n", server_ip);
     }
 
-    if(ftp_login_authenticate(sockfd, debug)) {
-      fprintf(stderr, "Login failed!\n");
-    }
-
-    if(ftp_passwd_authenticate(sockfd, debug)) {
-      fprintf(stderr, "Login failed!\n");
-    }
-
-    /*if(ftp_data_socket(&sdata)) {
-      fprintf(stderr, "Could not open the communication port!\n");
-    }
-
-    char * buffer = malloc(PROMPT_BUFFER_LENGTH);
-
-    if(buffer == NULL) {
-      fprintf(stderr, "Internal memory error!\n");
-      YYABORT;
-    }
-
-    int i = 0;
-
-    for(;i < INET_ADDRSTRLEN; i++)
-      if(sdata.ip_addr[i] == '.')
-        sdata.ip_addr[i] = ','; 
-
-    if(snprintf(buffer, PROMPT_BUFFER_LENGTH, "PORT %s,%d,%d\r\n", sdata.ip_addr, (sdata.port / 256), sdata.port % 256)  < 0) {
-      fprintf(stderr, "Internal memory error!\n");
-      YYABORT;
-    }
-
-    printf("command: %s\n", buffer);
-
-    if(send(sockfd, buffer, strlen(buffer), 0) < 0) {
-      fprintf(stderr, "Failed to connect to %s!\n", $2);
-      YYABORT;
-    }
-
-    if(debug) {
-      receive(sockfd);
-    }
-
-    free(buffer);*/
-
+    free($2);
     YYACCEPT;
   }
   | CLOSE {
-    close(sockfd) ? fprintf(stderr, "Failed to close active connection!\n") : printf("Connection to %s closed.\n", server_ipaddr);
-
+    if(close_connection(sockfd) == -1) {
+      fprintf(stderr, "Unable to close connection to '%s'!\n", server_ip);
+    } else {
+      sockfd = 0;
+      printf("Connection to '%s' closed!\n", server_ip);
+    }
+    
     YYACCEPT;
   }
   | HELP {
@@ -79,91 +42,146 @@ command:
   }
   | EXIT {
     if(sockfd != 0) {
-      close(sockfd) ? fprintf(stderr, "Failed to close active connection!\n") : printf("Connection to %s closed.\n", server_ipaddr);
+      if(close_connection(sockfd) == -1) {
+        fprintf(stderr, "Unable to close connection to '%s'!\n", server_ip);
+        YYACCEPT;
+      } else {
+        sockfd = 0;
+        printf("Connection to '%s' closed!\n", server_ip);
+      }
     }
-
-    execution = false;
+    
+    execution = sockfd;
     YYACCEPT;
   }
   | LIST NAME {
-    dir(sockfd, $2, debug, sdata.sockfd) ? fprintf(stderr, "Could not get listing of: %s!\n", $2) : printf("Listing of %s\n", $2);
+    if(passive) {
+      if((data_sockfd = passive_mode(sockfd, server_ip)) == -1) {
+        fprintf(stderr, "Failed to sent your request in passive mode! Try to switch to active mode.\n");
+        data_sockfd = 0;
 
+        YYACCEPT;
+      }
+    } else {
+      if((data_sockfd = active_mode(sockfd)) == -1) {
+        fprintf(stderr, "Failed to sent your request in active mode! Try to switch to passive mode.\n");
+        data_sockfd = 0;
+
+        YYACCEPT;
+      }
+    }
+
+    char * target = strip_first_last($2),
+         * response;
+
+    if(send_command(sockfd, "LIST", target) == -1 ||
+        !(response = recv_reply(sockfd, NULL)) ||
+        is_error(response) ||
+        !(response = recv_reply(data_sockfd, NULL)) ||
+        is_error(response)
+    ) {
+      fprintf(stderr, "Could not get listing of '%s'!\n", target);
+    }
+
+    if(response) {
+      free(response);
+    }
+
+    free(target);
     YYACCEPT;
   }
   | DELETE NAME {
+    char * target = strip_first_last($2),
+         * response;
 
+    if(send_command(sockfd, "DELE", target) == -1 ||
+        !(response = recv_reply(sockfd, NULL)) ||
+        is_error(response)
+    ) {
+      fprintf(stderr, "Could not delete file '%s'!\n", target);
+    }
+
+    if(response) {
+      free(response);
+    }
+
+    free(target);
+    YYACCEPT;
   }
   | DIR {
-    char * buffer = malloc(PROMPT_BUFFER_LENGTH);
+    char * response;
 
-    if(buffer == NULL) {
-      fprintf(stderr, "Internal memory error!\n");
-      YYABORT;
+    if(send_command(sockfd, "PWD", NULL) == -1 ||
+        !(response = recv_reply(sockfd, NULL)) ||
+        is_error(response)
+    ) {
+      fprintf(stderr, "Could not get path to the current working directory!\n");
     }
 
-    if(snprintf(buffer, PROMPT_BUFFER_LENGTH, "PWD\r\n")  < 0) {
-      fprintf(stderr, "Internal memory error!\n");
-      YYABORT;
+    if(response) {
+      free(response);
     }
 
-    printf("command: %s\n", buffer);
-
-    if(send(sockfd, buffer, strlen(buffer), 0) < 0) {
-      fprintf(stderr, "Failed to connect to %s!\n", server_ipaddr);
-      YYABORT;
-    }
-
-    if(debug) {
-      receive(sockfd);
-    }
-
-    free(buffer);
+    YYACCEPT;
   }
   | GOTO NAME {
+    char * target = strip_first_last($2),
+         * response;
 
+    if(send_command(sockfd, "CWD", target) == -1 ||
+        !(response = recv_reply(sockfd, NULL)) ||
+        is_error(response)
+    ) {
+      fprintf(stderr, "Could not change working directory to '%s'!\n", target);
+    }
+
+    if(response) {
+      free(response);
+    }
+
+    free(target);
+    YYACCEPT;
   }
   | GET NAME {
+    if(passive) {
+      if((data_sockfd = passive_mode(sockfd, server_ip)) == -1) {
+        fprintf(stderr, "Failed to sent your request in passive mode! Try to switch to active mode.\n");
+        data_sockfd = 0;
 
+        YYACCEPT;
+      }
+    } else {
+      if((data_sockfd = active_mode(sockfd)) == -1) {
+        fprintf(stderr, "Failed to sent your request in active mode! Try to switch to passive mode.\n");
+        data_sockfd = 0;
+
+        YYACCEPT;
+      }
+    }
+
+    char * target = strip_first_last($2),
+         * response;
+    FILE * output;
+
+    if(send_command(sockfd, "RETR", target) == -1 ||
+        !(output = fopen(basename(target), "w+")) ||
+        !(response = recv_reply(sockfd, NULL)) ||
+        is_error(response) ||
+        !recv_reply(data_sockfd, output) ||
+        fclose(output) == EOF
+    ) {
+      fprintf(stderr, "Could not retrieve file '%s'!\n", target);
+    }
+
+    free(target);
+    YYACCEPT;
   }
   | PASSIVE {
-    char * buffer = malloc(PROMPT_BUFFER_LENGTH);
-
-    if(buffer == NULL) {
-      fprintf(stderr, "Internal memory error!\n");
-      YYABORT;
-    }
-
-    if(snprintf(buffer, PROMPT_BUFFER_LENGTH, "PASV\r\n")  < 0) {
-      fprintf(stderr, "Internal memory error!\n");
-      YYABORT;
-    }
-
-    printf("command: %s\n", buffer);
-
-    if(send(sockfd, buffer, strlen(buffer), 0) < 0) {
-      fprintf(stderr, "Failed to send command to %s!\n", server_ipaddr);
-      YYABORT;
-    }
-
-    char * response = recv_quiet(sockfd);
-
-    printf("Response: %s\n", response);
-
-    char * first = strchr(response, '(');
-
-    int i1, i2, i3, i4, i5, i6;
-
-    sscanf(first, "(%d,%d,%d,%d,%d,%d).\r\n", &i1, &i2, &i3, &i4, &i5, &i6);
-
-    if((sdata.sockfd = ftp_connect(server_ipaddr, i5 * 256 + i6, false)) == -1) {
-      fprintf(stderr, "Failed to establish data connection to %s!\n", server_ipaddr);
-    }
-
-    sdata.ip_addr = server_ipaddr;
-    sdata.port = i5 * 256 + i6;
-
-    free(buffer);
-    free(response);
+    passive = true;
+    YYACCEPT;
+  }
+  | ACTIVE {
+    passive = false;
     YYACCEPT;
   }
   | DEBUG ON {
@@ -172,6 +190,5 @@ command:
   }
   | DEBUG OFF {
     debug = false;
-    printf("debug off\n");
     YYACCEPT;
   };

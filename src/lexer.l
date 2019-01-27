@@ -25,6 +25,7 @@ dir { return DIR; }
 goto { return GOTO; }
 get { return GET; }
 passive { return PASSIVE; }
+active { return ACTIVE; }
 debug { return DEBUG; }
 on { return ON; }
 off { return OFF; }
