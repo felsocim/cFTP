@@ -5,6 +5,7 @@ obj/*
 bin/*
 
 # Lex & Yacc
+include/lexer.h
 src/lexer.c
 include/prompt.h
 src/prompt.c

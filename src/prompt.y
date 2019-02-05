@@ -3,8 +3,7 @@
   #include "../include/ftp.h"
   #include "../include/main.h"
 
-  int yylex();
-  void yyerror(char*);
+  void yyerror(char *);
 %}
 
 %union {
@@ -20,19 +19,19 @@ command:
   OPEN IPADDR {
     server_ip = strdup($2);
 
-    if((sockfd = open_connection(server_ip, PORT, true)) == -1 || login(sockfd, debug) == -1) {
-      fprintf(stderr, "Unable to connect to '%s'!\n", server_ip);
+    if((sockfd = open_connection(server_ip, PORT, true, debug)) == -1 || login(sockfd, debug) == -1) {
+      fprintf(stderr, "Unable to connect to '%s'!\n\n", server_ip);
     }
 
     free($2);
     YYACCEPT;
   }
   | CLOSE {
-    if(close_connection(sockfd) == -1) {
-      fprintf(stderr, "Unable to close connection to '%s'!\n", server_ip);
+    if(close_connection(sockfd, debug) == -1) {
+      fprintf(stderr, "Unable to close connection to '%s'!\n\n", server_ip);
     } else {
       sockfd = 0;
-      printf("Connection to '%s' closed!\n", server_ip);
+      printf("Connection to '%s' closed!\n\n", server_ip);
     }
     
     YYACCEPT;
@@ -60,7 +59,7 @@ command:
   }
   | EXIT {
     if(sockfd != 0) {
-      if(close_connection(sockfd) == -1) {
+      if(close_connection(sockfd, debug) == -1) {
         fprintf(stderr, "Unable to close connection to '%s'! Force quit? [YyNn]\n", server_ip);
         
         char reply = fgetc(stdin);
@@ -70,7 +69,7 @@ command:
         }
       } else {
         sockfd = 0;
-        printf("Connection to '%s' closed!\n", server_ip);
+        printf("Connection to '%s' closed!\n\n", server_ip);
       }
     }
     
@@ -80,14 +79,14 @@ command:
   | LIST NAME {
     if(passive) {
       if((data_sockfd = passive_mode(sockfd, server_ip)) == -1) {
-        fprintf(stderr, "Failed to sent your request in passive mode! Try to switch to active mode.\n");
+        fprintf(stderr, "Failed to sent your request in passive mode! Try to switch to active mode.\n\n");
         data_sockfd = 0;
 
         YYACCEPT;
       }
     } else {
-      if((data_sockfd = active_mode(sockfd)) == -1) {
-        fprintf(stderr, "Failed to sent your request in active mode! Try to switch to passive mode.\n");
+      if((data_sockfd = active_mode(sockfd, debug)) == -1) {
+        fprintf(stderr, "Failed to sent your request in active mode! Try to switch to passive mode.\n\n");
         data_sockfd = 0;
 
         YYACCEPT;
@@ -96,36 +95,47 @@ command:
 
     char * target = strip_first_last($2),
          * response = NULL;
+    bool error = false;
 
     if(send_command(sockfd, "LIST", target) != -1 &&
         (response = recv_reply(sockfd, NULL, 0)) &&
-        !is_error(response) &&
-        debug
+        !is_error(response)
     ) {
-      printf("%s", response);
+      if(debug) {
+        printf("%s\n", response);
+      }
+
+      free(response);
 
       if((response = recv_reply(data_sockfd, NULL, 0)) &&
           !is_error(response)
       ) {
-        printf("%s", response);
+        printf("%s\n", response);
 
-        if((response = recv_reply(sockfd, NULL, 0)) &&
-          !is_error(response) &&
-          debug
+        free(response);
+
+        if(!(response = recv_reply(sockfd, NULL, 0)) ||
+           is_error(response)
         ) {
-          printf("%s", response);
-        } else {
-          fprintf(stderr, "Could not get listing of '%s'!\n", target);
+          error = true;
         }
       } else {
-        fprintf(stderr, "Could not get listing of '%s'!\n", target);
+        error = true;
       }
     } else {
-      fprintf(stderr, "Could not get listing of '%s'!\n", target);
+      error = true;
     }
   
-    if(response) {     
+    if(response) {
+      if(debug) {
+        printf("%s\n", response);
+      } 
+
       free(response);
+    }
+
+    if(error) {
+      fprintf(stderr, "Could not get listing of '%s'!\n\n", target);
     }
 
     free(target);
@@ -134,18 +144,20 @@ command:
   | DELETE NAME {
     char * target = strip_first_last($2),
          * response;
-
-    if(send_command(sockfd, "DELE", target) == -1 ||
-        !(response = recv_reply(sockfd, NULL, 0)) ||
-        is_error(response)
-    ) {
-      fprintf(stderr, "Could not delete file '%s'!\n", target);
-    } else if(debug) { 
-      printf("%s", response);
-    }
+    bool error = (send_command(sockfd, "DELE", target) == -1 ||
+                 !(response = recv_reply(sockfd, NULL, 0)) ||
+                 is_error(response));
 
     if(response) {
+      if(debug) { 
+        printf("%s\n", response);
+      }
+      
       free(response);
+    }
+
+    if(error) {
+      fprintf(stderr, "Could not delete file '%s'!\n\n", target);
     }
 
     free(target);
@@ -153,18 +165,17 @@ command:
   }
   | DIR {
     char * response;
-
-    if(send_command(sockfd, "PWD", NULL) == -1 ||
-        !(response = recv_reply(sockfd, NULL, 0)) ||
-        is_error(response)
-    ) {
-      fprintf(stderr, "Could not get path to the current working directory!\n");
-    } else {
-      printf("%s", response);
-    }
-
+    bool error = (send_command(sockfd, "PWD", NULL) == -1 ||
+                 !(response = recv_reply(sockfd, NULL, 0)) ||
+                 is_error(response));
+                 
     if(response) {
+      printf("%s\n", response);      
       free(response);
+    }
+    
+    if(error) {
+      fprintf(stderr, "Could not get path to the current working directory!\n\n");
     }
 
     YYACCEPT;
@@ -172,18 +183,20 @@ command:
   | GOTO NAME {
     char * target = strip_first_last($2),
          * response;
-
-    if(send_command(sockfd, "CWD", target) == -1 ||
-        !(response = recv_reply(sockfd, NULL, 0)) ||
-        is_error(response)
-    ) {
-      fprintf(stderr, "Could not change working directory to '%s'!\n", target);
-    } else if(debug) { 
-      printf("%s", response);
-    }
+    bool error = (send_command(sockfd, "CWD", target) == -1 ||
+                 !(response = recv_reply(sockfd, NULL, 0)) ||
+                 is_error(response));
 
     if(response) {
+      if(debug) { 
+        printf("%s\n", response);
+      }
+      
       free(response);
+    }
+                 
+    if(error) {
+      fprintf(stderr, "Could not change working directory to '%s'!\n\n", target);
     }
 
     free(target);
@@ -192,14 +205,14 @@ command:
   | GET NAME {
     if(passive) {
       if((data_sockfd = passive_mode(sockfd, server_ip)) == -1) {
-        fprintf(stderr, "Failed to sent your request in passive mode! Try to switch to active mode.\n");
+        fprintf(stderr, "Failed to sent your request in passive mode! Try to switch to active mode.\n\n");
         data_sockfd = 0;
 
         YYACCEPT;
       }
     } else {
-      if((data_sockfd = active_mode(sockfd)) == -1) {
-        fprintf(stderr, "Failed to sent your request in active mode! Try to switch to passive mode.\n");
+      if((data_sockfd = active_mode(sockfd, debug)) == -1) {
+        fprintf(stderr, "Failed to sent your request in active mode! Try to switch to passive mode.\n\n");
         data_sockfd = 0;
 
         YYACCEPT;
@@ -209,11 +222,12 @@ command:
     char * target = strip_first_last($2),
          * response;
     FILE * output;
+    bool error = false;
 
     if(send_command(sockfd, "RETR", target) != -1 && (output = fopen(basename(target), "w+"))) {
       if((response = recv_reply(sockfd, NULL, 0)) && !is_error(response)) {
         if(debug) { 
-          printf("%s", response);
+          printf("%s\n", response);
         }
 
         size_t size = 0;
@@ -221,20 +235,28 @@ command:
 
         if(temp && sscanf(temp, "(%lu bytes).\r\n", &size) != EOF) {
           if(!recv_reply(data_sockfd, output, size) || fclose(output) == EOF) {
-            fprintf(stderr, "Could not retrieve file '%s'!\n", target);
+            error = true;
           }
         } else {
-          fprintf(stderr, "Could not retrieve file '%s'!\n", target);
+          error = true;
         }
       } else {
-        fprintf(stderr, "Could not retrieve file '%s'!\n", target);
+        error = true;
       }
     } else {
-      fprintf(stderr, "Could not retrieve file '%s'!\n", target);
+      error = true;
+    }
+
+    if(response) {
+      free(response);
+    }
+
+    if(error) {
+      fprintf(stderr, "Could not retrieve file '%s'!\n\n", target);
     }
 
     free(target);
-    free(response);
+
     YYACCEPT;
   }
   | PASSIVE {

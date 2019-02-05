@@ -39,7 +39,7 @@ bool is_error(const char * response) {
 	return response[0] == '4' || response[0] == '5';
 }
 
-int open_connection(const char * server_ip, in_port_t port, bool expect_reply) {
+int open_connection(const char * server_ip, in_port_t port, bool expect_reply, bool debug) {
 	struct sockaddr_in address;
 	int sockfd;
 
@@ -62,8 +62,22 @@ int open_connection(const char * server_ip, in_port_t port, bool expect_reply) {
 		char * response;
 
 		if(!(response = recv_reply(sockfd, NULL, 0)) || is_error(response)) {
+			if(response) {
+				if(debug) {
+					printf("%s\n", response);
+				}
+
+				free(response);
+			}
+
 			goto error;
 		}
+
+		if(debug) {
+			printf("%s\n", response);
+		}
+
+		free(response);
 	}
 
 	return sockfd;
@@ -91,16 +105,22 @@ int send_command(int sockfd, char * command, char * arguments) {
 	}
 
 	if(snprintf(line, length, "%s%s%s\r\n", command, arguments ? " " : "", arguments ? arguments : "") != length - 1) {
-		return -1;
+		goto error;
 	}
 
 	length -= 1;
 
   if(send(sockfd, line, length, 0) != length) {
-    return -1;
+    goto error;
   }
 
+	free(line);
+
 	return 0;
+
+error:
+	free(line);
+	return -1;
 }
 
 char * recv_reply(int sockfd, FILE * output, size_t expected_bytes) {
@@ -111,7 +131,7 @@ char * recv_reply(int sockfd, FILE * output, size_t expected_bytes) {
   do {
 		memset(receiver, '\0', RECEIVER_BUFFER_SIZE);
 
-    code = recv(sockfd, receiver, RECEIVER_BUFFER_SIZE - 1, 0);
+    code = recv(sockfd, receiver, RECEIVER_BUFFER_SIZE, 0);
  
 		if(output) {
 			if(fwrite(receiver, 1, code, output) != code) {
@@ -140,6 +160,8 @@ char * recv_reply(int sockfd, FILE * output, size_t expected_bytes) {
 
 				total = strncat(total, receiver, code);
 			}
+
+			total[total_size] = '\0';
 		}
   } while(total_size < expected_bytes);
 
@@ -272,13 +294,18 @@ int passive_mode(int sockfd, const char * server_ip) {
 
 	char * first = strchr(response, '(');
 
+	if(!first) {
+		free(response);
+		return -1;
+	}
+
 	int i1, i2, i3, i4, i5, i6;
 
 	sscanf(first, "(%d,%d,%d,%d,%d,%d).\r\n", &i1, &i2, &i3, &i4, &i5, &i6);
 
 	int data_socket;
 
-	if((data_socket = open_connection(server_ip, i5 * 256 + i6, false)) == -1) {
+	if((data_socket = open_connection(server_ip, i5 * 256 + i6, false, false)) == -1) {
 		free(response);
 		return -1;
 	}
@@ -287,7 +314,7 @@ int passive_mode(int sockfd, const char * server_ip) {
 	return data_socket;
 }
 
-int active_mode(int sockfd) {
+int active_mode(int sockfd, bool debug) {
 	struct sockaddr_in address;
 	int data_sockfd;
 
@@ -378,12 +405,23 @@ int active_mode(int sockfd) {
 	char * response;
 
 	if(send_command(sockfd, "PORT", buffer) == -1 || !(response = recv_reply(sockfd, NULL, 0)) || is_error(response)) {
+		if(response) {
+			if(debug) {
+				printf("%s\n", response);
+			}
+			
+			free(response);
+		}
+		
 		free(local_ip);
 		free(buffer);
-		free(response);
 		close(data_sockfd);
 
 		return -1;
+	}
+
+	if(debug) {
+		printf("%s\n", response);
 	}
 
 	free(local_ip);
@@ -393,7 +431,7 @@ int active_mode(int sockfd) {
 	return 0;
 }
 
-int close_connection(int sockfd) {
+int close_connection(int sockfd, bool debug) {
 	char * response;
 
 	if(send_command(sockfd, "QUIT", NULL) ||
@@ -401,8 +439,22 @@ int close_connection(int sockfd) {
 			is_error(response) ||
 			close(sockfd) == -1
 	) {
+		if(response) {
+			if(debug) {
+				printf("%s\n", response);
+			}
+
+			free(response);
+		}
+
 		return -1;
 	}
+
+	if(debug) {
+		printf("%s\n", response);
+	}
+
+	free(response);
 
 	return 0;
 }
