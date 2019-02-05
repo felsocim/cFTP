@@ -10,9 +10,9 @@
 void stdin_flush(void);
 char * strip_first_last(char *);
 bool is_error(const char *);
-int open_connection(const char *, in_port_t);
+int open_connection(const char *, in_port_t, bool);
 int send_command(int, char *, char *);
-char * recv_reply(int, FILE *);
+char * recv_reply(int, FILE *, size_t);
 int login(int, bool);
 int passive_mode(int, const char *);
 int active_mode(int);

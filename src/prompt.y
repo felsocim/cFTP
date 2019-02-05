@@ -20,7 +20,7 @@ command:
   OPEN IPADDR {
     server_ip = strdup($2);
 
-    if((sockfd = open_connection(server_ip, PORT)) == -1 || login(sockfd, debug) == -1) {
+    if((sockfd = open_connection(server_ip, PORT, true)) == -1 || login(sockfd, debug) == -1) {
       fprintf(stderr, "Unable to connect to '%s'!\n", server_ip);
     }
 
@@ -38,13 +38,36 @@ command:
     YYACCEPT;
   }
   | HELP {
-
+    printf("This is a simple File Transfer Protocol (FTP) command line client.\n\n"
+           "See the list of available commands and their syntax below:\n"
+           "\t- open IPADDR\tOpens new connection to the FTP server identified by the IPv4 address IPADDR.\n"
+           "\t- close\t\tCloses currently opened connection.\n"
+           "\t- help\t\tShows this help message.\n"
+           "\t- exit\t\tCloses currently opened connection and quits the application.\n"
+           "\t- list \"PATH\"\tGets listing of the directory under the path PATH.\n"
+           "\t- delete \"PATH\"\tDeletes the file under the path PATH from the server without any confirmation.\n"
+           "\t- dir\t\tGets path of the current working directory on the server.\n"
+           "\t- goto \"PATH\"\tNavigates to the path PATH on the server.\n"
+           "\t- get \"PATH\"\tRetrieves the file under the path PATH from the server onto local computer.\n"
+           "\t- passive\tEnters passive FTP mode.\n"
+           "\t- active\tEnters active FTP mode.\n"
+           "\t- debug on|off\tShows/hides debugging informations on/from the standard output.\n\n"
+           "This application was developed within our studies at the University of Strasbourg and is licensed under the terms of the MIT license (see LICENSE file for the full license text).\n\n"
+           "More information and source code of the application can be found at <https://github.com/felsocim/cFTP>.\n\n"
+           "Copyright (C) 2018 - 2019 Marek Felsoci and Aurélien Rausch\n");
+    
+    YYACCEPT;
   }
   | EXIT {
     if(sockfd != 0) {
       if(close_connection(sockfd) == -1) {
-        fprintf(stderr, "Unable to close connection to '%s'!\n", server_ip);
-        YYACCEPT;
+        fprintf(stderr, "Unable to close connection to '%s'! Force quit? [YyNn]\n", server_ip);
+        
+        char reply = fgetc(stdin);
+        
+        if(reply == 'Y' || reply == 'y') {
+          sockfd = 0;
+        }
       } else {
         sockfd = 0;
         printf("Connection to '%s' closed!\n", server_ip);
@@ -72,18 +95,36 @@ command:
     }
 
     char * target = strip_first_last($2),
-         * response;
+         * response = NULL;
 
-    if(send_command(sockfd, "LIST", target) == -1 ||
-        !(response = recv_reply(sockfd, NULL)) ||
-        is_error(response) ||
-        !(response = recv_reply(data_sockfd, NULL)) ||
-        is_error(response)
+    if(send_command(sockfd, "LIST", target) != -1 &&
+        (response = recv_reply(sockfd, NULL, 0)) &&
+        !is_error(response) &&
+        debug
     ) {
+      printf("%s", response);
+
+      if((response = recv_reply(data_sockfd, NULL, 0)) &&
+          !is_error(response)
+      ) {
+        printf("%s", response);
+
+        if((response = recv_reply(sockfd, NULL, 0)) &&
+          !is_error(response) &&
+          debug
+        ) {
+          printf("%s", response);
+        } else {
+          fprintf(stderr, "Could not get listing of '%s'!\n", target);
+        }
+      } else {
+        fprintf(stderr, "Could not get listing of '%s'!\n", target);
+      }
+    } else {
       fprintf(stderr, "Could not get listing of '%s'!\n", target);
     }
-
-    if(response) {
+  
+    if(response) {     
       free(response);
     }
 
@@ -95,10 +136,12 @@ command:
          * response;
 
     if(send_command(sockfd, "DELE", target) == -1 ||
-        !(response = recv_reply(sockfd, NULL)) ||
+        !(response = recv_reply(sockfd, NULL, 0)) ||
         is_error(response)
     ) {
       fprintf(stderr, "Could not delete file '%s'!\n", target);
+    } else if(debug) { 
+      printf("%s", response);
     }
 
     if(response) {
@@ -112,10 +155,12 @@ command:
     char * response;
 
     if(send_command(sockfd, "PWD", NULL) == -1 ||
-        !(response = recv_reply(sockfd, NULL)) ||
+        !(response = recv_reply(sockfd, NULL, 0)) ||
         is_error(response)
     ) {
       fprintf(stderr, "Could not get path to the current working directory!\n");
+    } else {
+      printf("%s", response);
     }
 
     if(response) {
@@ -129,10 +174,12 @@ command:
          * response;
 
     if(send_command(sockfd, "CWD", target) == -1 ||
-        !(response = recv_reply(sockfd, NULL)) ||
+        !(response = recv_reply(sockfd, NULL, 0)) ||
         is_error(response)
     ) {
       fprintf(stderr, "Could not change working directory to '%s'!\n", target);
+    } else if(debug) { 
+      printf("%s", response);
     }
 
     if(response) {
@@ -163,32 +210,50 @@ command:
          * response;
     FILE * output;
 
-    if(send_command(sockfd, "RETR", target) == -1 ||
-        !(output = fopen(basename(target), "w+")) ||
-        !(response = recv_reply(sockfd, NULL)) ||
-        is_error(response) ||
-        !recv_reply(data_sockfd, output) ||
-        fclose(output) == EOF
-    ) {
+    if(send_command(sockfd, "RETR", target) != -1 && (output = fopen(basename(target), "w+"))) {
+      if((response = recv_reply(sockfd, NULL, 0)) && !is_error(response)) {
+        if(debug) { 
+          printf("%s", response);
+        }
+
+        size_t size = 0;
+        char * temp = strchr(response, '(');
+
+        if(temp && sscanf(temp, "(%lu bytes).\r\n", &size) != EOF) {
+          if(!recv_reply(data_sockfd, output, size) || fclose(output) == EOF) {
+            fprintf(stderr, "Could not retrieve file '%s'!\n", target);
+          }
+        } else {
+          fprintf(stderr, "Could not retrieve file '%s'!\n", target);
+        }
+      } else {
+        fprintf(stderr, "Could not retrieve file '%s'!\n", target);
+      }
+    } else {
       fprintf(stderr, "Could not retrieve file '%s'!\n", target);
     }
 
     free(target);
+    free(response);
     YYACCEPT;
   }
   | PASSIVE {
     passive = true;
+    printf("Entered passive mode.\n\n");
     YYACCEPT;
   }
   | ACTIVE {
     passive = false;
+    printf("Entered active mode.\n\n");
     YYACCEPT;
   }
   | DEBUG ON {
     debug = true;
+    printf("Debugging information will be shown.\n\n");
     YYACCEPT;
   }
   | DEBUG OFF {
     debug = false;
+    printf("Debugging information will be hidden.\n\n");
     YYACCEPT;
   };

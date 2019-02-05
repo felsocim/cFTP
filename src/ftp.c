@@ -9,16 +9,12 @@ char * strip_first_last(char * __s_to_consume) {
 	size_t length = strlen(__s_to_consume);
 	char * result = NULL;
 
-	if(length < 2) {
-		if(!(result = malloc(1))) {
-			return NULL;
-		}
-
-		result[0] = '\0';
-		return result;
+	if(length < 3) {
+		free(__s_to_consume);
+		return NULL;
 	}
 
-	if(!(result = malloc(length - 2))) {
+	if(!(result = malloc(length - 1))) {
 		return NULL;
 	}
 
@@ -32,6 +28,8 @@ char * strip_first_last(char * __s_to_consume) {
 		result[i] = temp[i];
 	}
 
+	result[length] = '\0';
+
 	free(__s_to_consume);
 
 	return result;
@@ -41,7 +39,7 @@ bool is_error(const char * response) {
 	return response[0] == '4' || response[0] == '5';
 }
 
-int open_connection(const char * server_ip, in_port_t port) {
+int open_connection(const char * server_ip, in_port_t port, bool expect_reply) {
 	struct sockaddr_in address;
 	int sockfd;
 
@@ -60,10 +58,12 @@ int open_connection(const char * server_ip, in_port_t port) {
 		goto error;
 	}
 
-	char * response;
+	if(expect_reply) {
+		char * response;
 
-  if(!(response = recv_reply(sockfd, NULL)) || is_error(response)) {
-		goto error;
+		if(!(response = recv_reply(sockfd, NULL, 0)) || is_error(response)) {
+			goto error;
+		}
 	}
 
 	return sockfd;
@@ -103,19 +103,24 @@ int send_command(int sockfd, char * command, char * arguments) {
 	return 0;
 }
 
-char * recv_reply(int sockfd, FILE * output) {
+char * recv_reply(int sockfd, FILE * output, size_t expected_bytes) {
   ssize_t code = 0, total_size = 0;
   char * receiver = calloc(RECEIVER_BUFFER_SIZE, 1),
 			 * total = NULL;
 
   do {
+		memset(receiver, '\0', RECEIVER_BUFFER_SIZE);
+
     code = recv(sockfd, receiver, RECEIVER_BUFFER_SIZE - 1, 0);
-    
+ 
 		if(output) {
-			if(fwrite(receiver, code, 1, output) != code) {
+			if(fwrite(receiver, 1, code, output) != code) {
 				free(receiver);
 				return NULL;
 			}
+
+			total_size += code;
+			printf("Acquiring file ... %lu%%\r", (((size_t) total_size * 100) / expected_bytes));
 		} else {
 			if(total_size < 1) {
 				if(!(total = malloc(code + 1))) {
@@ -135,14 +140,16 @@ char * recv_reply(int sockfd, FILE * output) {
 
 				total = strncat(total, receiver, code);
 			}
-		}	
-
-    memset(receiver, '\0', RECEIVER_BUFFER_SIZE);
-  } while(code == RECEIVER_BUFFER_SIZE - 1);
+		}
+  } while(total_size < expected_bytes);
 
   if(code == -1) {
     return NULL;
   }
+
+	if(output) {
+		printf("Acquiring file ... 100%%\n");
+	}
 
   free(receiver);
 
@@ -171,7 +178,7 @@ int login(int sockfd, bool debug) {
 
 	char * response;
 
-	if(!(response = recv_reply(sockfd, NULL))) {
+	if(!(response = recv_reply(sockfd, NULL, 0))) {
 		free(data);
 		return -1;
 	}
@@ -216,6 +223,8 @@ int login(int sockfd, bool debug) {
 		return -1;
 	}
 
+	printf("\n");
+
 	if(send_command(sockfd, "PASS", data) == -1) {
 		free(data);
 		return -1;
@@ -228,7 +237,7 @@ int login(int sockfd, bool debug) {
 		return 1;
 	}
 
-	if(!(response = recv_reply(sockfd, NULL))) {
+	if(!(response = recv_reply(sockfd, NULL, 0))) {
 		free(data);
 		return -1;
 	}
@@ -256,11 +265,11 @@ int passive_mode(int sockfd, const char * server_ip) {
 
 	char * response;
 
-	if(!(response = recv_reply(sockfd, NULL)) || is_error(response)) {
+	if(!(response = recv_reply(sockfd, NULL, 0)) || is_error(response)) {
 		free(response);
 		return -1;
 	}
-	
+
 	char * first = strchr(response, '(');
 
 	int i1, i2, i3, i4, i5, i6;
@@ -269,7 +278,7 @@ int passive_mode(int sockfd, const char * server_ip) {
 
 	int data_socket;
 
-	if((data_socket = open_connection(server_ip, i5 * 256 + i6)) == -1) {
+	if((data_socket = open_connection(server_ip, i5 * 256 + i6, false)) == -1) {
 		free(response);
 		return -1;
 	}
@@ -368,7 +377,7 @@ int active_mode(int sockfd) {
 
 	char * response;
 
-	if(send_command(sockfd, "PORT", buffer) == -1 || !(response = recv_reply(sockfd, NULL)) || is_error(response)) {
+	if(send_command(sockfd, "PORT", buffer) == -1 || !(response = recv_reply(sockfd, NULL, 0)) || is_error(response)) {
 		free(local_ip);
 		free(buffer);
 		free(response);
@@ -388,7 +397,7 @@ int close_connection(int sockfd) {
 	char * response;
 
 	if(send_command(sockfd, "QUIT", NULL) ||
-			!(response = recv_reply(sockfd, NULL)) ||
+			!(response = recv_reply(sockfd, NULL, 0)) ||
 			is_error(response) ||
 			close(sockfd) == -1
 	) {

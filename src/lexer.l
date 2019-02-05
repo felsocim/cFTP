@@ -35,4 +35,4 @@ off { return OFF; }
 
 [ ] ;
 
-. { fprintf(stderr, "Syntax error near: %s!\n", yytext); } { return EXIT_SUCCESS; }
+. { fprintf(stderr, "Unexpected token at '%s'!\n", yytext); } { return EXIT_FAILURE; }
