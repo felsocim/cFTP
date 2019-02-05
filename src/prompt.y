@@ -37,7 +37,7 @@ command:
     YYACCEPT;
   }
   | HELP {
-    printf("This is a simple File Transfer Protocol (FTP) command line client.\n\n"
+    printf("This is a simple File Transfer Protocol (FTP) command line client for browsing and downloading files from FTP servers.\n\n"
            "See the list of available commands and their syntax below:\n"
            "\t- open IPADDR\tOpens new connection to the FTP server identified by the IPv4 address IPADDR.\n"
            "\t- close\t\tCloses currently opened connection.\n"

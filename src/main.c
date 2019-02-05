@@ -17,7 +17,7 @@ int main(int argc, char ** argv) {
          "|c| |F| |T| |P|\n"
          "+-+ +-+ +-+ +-+\n");
 
-  printf("Welcome to a simple File Transfer Protocol (FTP) command line client!\n"
+  printf("Welcome to a simple File Transfer Protocol (FTP) command line client for browsing and downloading files from FTP servers!\n"
          "Created by Marek Felsoci and Aurélien Rausch.\n"
          "Version %s.\n\n"
          "Type 'help' command to get help.\n\n", VERSION);  
